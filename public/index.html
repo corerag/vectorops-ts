@@ -26,20 +26,16 @@
       </section>
 
       <section class="card">
-        <h2>Ask a question</h2>
-        <p class="hint">Ask something about the documents you've uploaded.</p>
+        <div class="card-header-row">
+          <h2>Ask a question</h2>
+          <button id="newConversationBtn" type="button" class="secondary-btn">New conversation</button>
+        </div>
+        <p class="hint">Follow-up questions use the conversation so far - ask about "it" or "that" and it'll know what you mean.</p>
+
+        <div id="conversation" class="conversation"></div>
+
         <input id="questionInput" type="text" placeholder="Ask a question&hellip;" autocomplete="off" />
         <button id="askBtn" type="button">Ask</button>
-
-        <div id="answerSection" class="answer-section hidden">
-          <h3>Answer</h3>
-          <div id="answerText" class="answer-text"></div>
-
-          <div id="sourcesSection" class="hidden">
-            <h3>Sources</h3>
-            <ul id="sourcesList" class="sources-list"></ul>
-          </div>
-        </div>
 
         <div id="askResult" class="result" role="status"></div>
       </section>

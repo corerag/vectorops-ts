@@ -5,7 +5,7 @@ A minimal Retrieval-Augmented Generation (RAG) service built with TypeScript, Ex
 ## How it works
 
 1. **Upload** — `POST /upload` splits a document into overlapping chunks, embeds each one locally, and stores them in an in-memory vector store. Every upload is immediately persisted to `data/vectorstore.json`.
-2. **Query** — `POST /query` embeds your question the same way, retrieves the most similar chunks, and passes them to Claude as context to generate an answer.
+2. **Query** — `POST /query` embeds your question the same way, retrieves the most similar chunks, and passes them to Claude as context to generate an answer. Pass a `session_id` to make follow-up questions work naturally (see [Conversational memory](#conversational-memory)).
 
 Embeddings are computed locally by [all-MiniLM-L6-v2](https://huggingface.co/Xenova/all-MiniLM-L6-v2), a small open-weight sentence-embedding model running on-device via [transformers.js](https://huggingface.co/docs/transformers.js) (ONNX Runtime, CPU) — real semantic similarity, not just keyword matching, with no API key and no per-request cost. The model (~90MB) downloads from Hugging Face on first use and is cached locally afterward, so only the very first run needs network access for this part. The only per-request external call is to the Claude API when generating an answer.
 
@@ -40,7 +40,8 @@ vectorops-ts/
 │           ├── chunker.ts               # Document chunking (RecursiveCharacterTextSplitter)
 │           ├── transformerEmbeddings.ts # Local semantic embeddings (all-MiniLM-L6-v2, no API key needed)
 │           ├── vectorstore.ts           # Vector store wrapper + JSON persistence
-│           └── qa.ts                    # Sends retrieved context + question to Claude
+│           ├── conversation.ts          # In-memory chat history, keyed by session id
+│           └── qa.ts                    # Question condensing + sends context/history to Claude
 ├── data/
 │   └── vectorstore.json                 # Persisted chunks + embeddings (created on first upload, not committed)
 ├── package.json
@@ -83,7 +84,7 @@ vectorops-ts/
 A single-page UI is served at `/` — no build step, no framework, just static HTML/CSS/JS served directly by Express from `public/`. Two panels:
 
 - **Upload a document** — paste text, click Upload. Shows the resulting chunk count or an error.
-- **Ask a question** — type a question, click Ask (or press Enter). Shows Claude's answer and the source chunks it was grounded in, each with its similarity score.
+- **Ask a question** — type a question, click Ask (or press Enter). Answers appear in a running conversation transcript, each with its source chunks (collapsed behind a "Sources" disclosure) and similarity scores. Every question in the transcript shares one `session_id`, generated client-side and reused for the tab, so follow-ups build on what came before. **New conversation** clears the transcript and starts a fresh `session_id`.
 
 A status indicator in the header pings `/health` on load so you can tell at a glance whether the API is reachable. All content from the API (uploaded text echoed back, Claude's answer, source chunks) is HTML-escaped before being inserted into the page.
 
@@ -124,10 +125,11 @@ Retrieves the most relevant chunks for a question and asks Claude to answer usin
 **Request body:**
 
 ```json
-{ "question": "What does this document say about X?", "k": 4 }
+{ "question": "What does this document say about X?", "k": 4, "session_id": "abc-123" }
 ```
 
-`k` (optional) controls how many chunks are retrieved; defaults to 4.
+- `k` (optional) controls how many chunks are retrieved; defaults to 4.
+- `session_id` (optional) — an opaque string identifying the conversation. When present, this question is answered with the benefit of prior turns from the same `session_id` (see [Conversational memory](#conversational-memory)). Omit it for a one-off, stateless question.
 
 **Response:**
 
@@ -146,6 +148,8 @@ With the server running, the included scripts exercise the two endpoints against
 node src/test-upload.js
 node src/test-query.js
 ```
+
+`test-query.js` asks a question, then a pronoun-only follow-up sharing the same `session_id`, to demonstrate conversational memory - run `test-upload.js` (or upload something relevant) first.
 
 ## Retrieval evaluation
 
@@ -181,6 +185,16 @@ This is a flat JSON file, not a database — fine for local development and demo
 Each save is tagged with the embedding model that produced it. If you change the embedding model, the server detects the mismatch on startup, logs a warning, and starts with an empty store instead of loading vectors from a different embedding space (which would silently corrupt similarity search) — re-upload your documents to rebuild it.
 
 The retrieval evaluation harness (`npm run eval`) explicitly disables persistence for its own store, so running it never reads or overwrites your real uploaded data.
+
+## Conversational memory
+
+Passing a `session_id` on `/query` makes follow-up questions work the way you'd expect — ask "What is RAG?", then "How does it compare to fine-tuning?", and the second question is understood in light of the first, even though "it" never says "RAG" anywhere.
+
+This requires more than just handing Claude the chat history. Retrieval runs *before* Claude sees anything - the question gets embedded and matched against the vector store on its own. A pronoun-only follow-up embeds poorly in isolation, so on any question after the first in a session, it's first rewritten into a standalone question using the prior turns ("How does it compare to fine-tuning?" → "How does RAG compare to fine-tuning?"), *then* that rewritten version is used for retrieval. The answer step gets both the original question and the full conversation history, so it responds naturally rather than re-explaining a rewritten question the user didn't actually ask.
+
+Two Claude calls happen per follow-up question (rewrite, then answer) instead of one — the first turn in a session only needs one call, since there's nothing yet to rewrite against.
+
+History is kept **in memory only**, in a `Map` keyed by `session_id`, capped at the last 10 turns per session (older turns are dropped, not summarized). It is not persisted to disk and does not survive a server restart — unlike the vector store, which is. There's no session expiry, so a long-running server accumulates one history entry per distinct `session_id` it's seen; fine for local use, worth knowing about before exposing this publicly.
 
 ## Notes
 
