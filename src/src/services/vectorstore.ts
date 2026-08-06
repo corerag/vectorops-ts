@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { MemoryVectorStore } from '@langchain/classic/vectorstores/memory';
 import { Document } from '@langchain/core/documents';
-import { LocalHashEmbeddings } from './localEmbeddings';
+import { TransformerEmbeddings } from './transformerEmbeddings';
 
 export interface SimilarityMatch {
   content: string;
@@ -15,6 +15,12 @@ interface PersistedVector {
   content: string;
   embedding: number[];
   metadata: Record<string, unknown>;
+}
+
+/** On-disk shape of the whole persisted store, tagged with the embedding model that produced it. */
+interface PersistedStore {
+  modelId: string;
+  vectors: PersistedVector[];
 }
 
 export interface VectorStoreServiceOptions {
@@ -33,10 +39,12 @@ const DEFAULT_PERSIST_PATH = path.resolve(__dirname, '../../../data/vectorstore.
 
 export class VectorStoreService {
   private store: MemoryVectorStore;
+  private readonly embeddings: TransformerEmbeddings;
   private readonly persistPath: string | null;
 
   constructor(options: VectorStoreServiceOptions = {}) {
-    this.store = new MemoryVectorStore(new LocalHashEmbeddings());
+    this.embeddings = new TransformerEmbeddings();
+    this.store = new MemoryVectorStore(this.embeddings);
     this.persistPath = options.persistPath === undefined ? DEFAULT_PERSIST_PATH : options.persistPath;
   }
 
@@ -62,14 +70,17 @@ export class VectorStoreService {
   async save(): Promise<void> {
     if (!this.persistPath) return;
 
-    const records: PersistedVector[] = this.store.memoryVectors.map((vector) => ({
-      content: vector.content,
-      embedding: vector.embedding,
-      metadata: vector.metadata,
-    }));
+    const persisted: PersistedStore = {
+      modelId: this.embeddings.modelId,
+      vectors: this.store.memoryVectors.map((vector) => ({
+        content: vector.content,
+        embedding: vector.embedding,
+        metadata: vector.metadata,
+      })),
+    };
 
     await fs.mkdir(path.dirname(this.persistPath), { recursive: true });
-    await fs.writeFile(this.persistPath, JSON.stringify(records), 'utf-8');
+    await fs.writeFile(this.persistPath, JSON.stringify(persisted), 'utf-8');
   }
 
   /**
@@ -77,6 +88,11 @@ export class VectorStoreService {
    * Embeddings are reused as-is - nothing gets re-embedded. Call once at
    * startup, before serving requests. No-op if persistence is disabled or
    * no file has been written yet.
+   *
+   * If the file was written by a different embedding model (e.g. it
+   * predates a model upgrade), its vectors live in an incompatible space -
+   * mixing them with new ones would silently corrupt similarity search.
+   * Rather than load bad data, this logs a warning and starts empty.
    */
   async load(): Promise<void> {
     if (!this.persistPath) return;
@@ -89,11 +105,24 @@ export class VectorStoreService {
       throw error;
     }
 
-    const records: PersistedVector[] = JSON.parse(raw);
-    if (records.length === 0) return;
+    const parsed = JSON.parse(raw);
+    const persisted: PersistedStore = Array.isArray(parsed)
+      ? { modelId: '', vectors: parsed } // pre-tagging format: treat as always-incompatible
+      : parsed;
 
-    const documents = records.map((r) => new Document({ pageContent: r.content, metadata: r.metadata }));
-    const vectors = records.map((r) => r.embedding);
+    if (persisted.modelId !== this.embeddings.modelId) {
+      console.warn(
+        `${this.persistPath} was saved with embedding model "${persisted.modelId || 'unknown'}", ` +
+          `but this server is using "${this.embeddings.modelId}". Skipping incompatible persisted data ` +
+          '- re-upload your documents to rebuild the store with the current model.',
+      );
+      return;
+    }
+
+    if (persisted.vectors.length === 0) return;
+
+    const documents = persisted.vectors.map((r) => new Document({ pageContent: r.content, metadata: r.metadata }));
+    const vectors = persisted.vectors.map((r) => r.embedding);
     await this.store.addVectors(vectors, documents);
   }
 }

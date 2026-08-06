@@ -7,14 +7,13 @@ A minimal Retrieval-Augmented Generation (RAG) service built with TypeScript, Ex
 1. **Upload** — `POST /upload` splits a document into overlapping chunks, embeds each one locally, and stores them in an in-memory vector store. Every upload is immediately persisted to `data/vectorstore.json`.
 2. **Query** — `POST /query` embeds your question the same way, retrieves the most similar chunks, and passes them to Claude as context to generate an answer.
 
-Embeddings are computed locally with a deterministic hashing-trick implementation (tokenize → hash into buckets → normalize) rather than calling an external embeddings API. This keeps the retrieval side fully free and offline — the only external call is to the Claude API when generating an answer.
-
-> Local hash-based embeddings capture keyword overlap, not deep semantic meaning. They're a solid way to test the pipeline end-to-end; swapping in a real embedding model (local or hosted) is a natural next step if retrieval quality needs to improve.
+Embeddings are computed locally by [all-MiniLM-L6-v2](https://huggingface.co/Xenova/all-MiniLM-L6-v2), a small open-weight sentence-embedding model running on-device via [transformers.js](https://huggingface.co/docs/transformers.js) (ONNX Runtime, CPU) — real semantic similarity, not just keyword matching, with no API key and no per-request cost. The model (~90MB) downloads from Hugging Face on first use and is cached locally afterward, so only the very first run needs network access for this part. The only per-request external call is to the Claude API when generating an answer.
 
 ## Tech stack
 
 - **[Express](https://expressjs.com/)** — HTTP server
 - **[LangChain](https://js.langchain.com/)** (`@langchain/core`, `@langchain/classic`, `@langchain/textsplitters`) — text chunking and in-memory vector store
+- **[@huggingface/transformers](https://huggingface.co/docs/transformers.js)** — local embedding model (all-MiniLM-L6-v2) for retrieval
 - **[@langchain/anthropic](https://www.npmjs.com/package/@langchain/anthropic)** — Claude integration for answer generation
 - **TypeScript** with `ts-node` for direct execution (no build step required in development)
 - **dotenv** — environment variable loading
@@ -35,7 +34,7 @@ vectorops-ts/
 │   └── src/
 │       └── services/
 │           ├── chunker.ts               # Document chunking (RecursiveCharacterTextSplitter)
-│           ├── localEmbeddings.ts       # Local hash-based embeddings (no API key needed)
+│           ├── transformerEmbeddings.ts # Local semantic embeddings (all-MiniLM-L6-v2, no API key needed)
 │           ├── vectorstore.ts           # Vector store wrapper + JSON persistence
 │           └── qa.ts                    # Sends retrieved context + question to Claude
 ├── data/
@@ -48,6 +47,7 @@ vectorops-ts/
 
 - [Node.js](https://nodejs.org/) 18+
 - An [Anthropic API key](https://console.anthropic.com/) with available credits
+- Network access on first run only, to download the ~90MB embedding model (cached locally afterward)
 
 ## Setup
 
@@ -143,7 +143,7 @@ npm run eval               # evaluate top-4 retrieval (matches /query's default)
 npm run eval -- --k=6      # evaluate a different top-k cutoff
 ```
 
-This only exercises embeddings + vector search — it never calls Claude, so it runs fully offline with no API key needed and no cost.
+This only exercises embeddings + vector search — it never calls Claude, so it needs no API key and has no per-run cost (the first run downloads the embedding model, same as the server).
 
 **Metrics reported, per question and in aggregate:**
 
@@ -164,6 +164,8 @@ To test against your own questions, edit `src/eval/dataset.ts` — add a documen
 The vector store lives in memory while the server runs, but every `/upload` immediately writes the full store — chunk text, embedding, and metadata for every chunk — to `data/vectorstore.json`. On startup, the server reads that file back in before it starts accepting requests, reusing the saved embeddings rather than recomputing them. Restarting the server (or a crash) doesn't lose uploaded documents.
 
 This is a flat JSON file, not a database — fine for local development and demos, but it rewrites the entire file on every upload with no locking, so it isn't meant for concurrent writers or large corpora. Delete `data/vectorstore.json` (or the whole `data/` directory) to reset the store.
+
+Each save is tagged with the embedding model that produced it. If you change the embedding model, the server detects the mismatch on startup, logs a warning, and starts with an empty store instead of loading vectors from a different embedding space (which would silently corrupt similarity search) — re-upload your documents to rebuild it.
 
 The retrieval evaluation harness (`npm run eval`) explicitly disables persistence for its own store, so running it never reads or overwrites your real uploaded data.
 
