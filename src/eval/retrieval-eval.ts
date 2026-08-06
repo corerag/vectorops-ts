@@ -45,7 +45,9 @@ function formatPercent(value: number): string {
 async function main(): Promise<void> {
   const k = parseK(process.argv.slice(2), 4);
 
-  const store = new VectorStoreService();
+  // persistPath: null - this is a throwaway fixture corpus, never the real
+  // uploaded documents, so it must never read or write data/vectorstore.json.
+  const store = new VectorStoreService({ persistPath: null });
   await store.addChunks(
     EVAL_DOCUMENTS.map((doc) => doc.text),
     EVAL_DOCUMENTS.map((doc) => ({ id: doc.id })),

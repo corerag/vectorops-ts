@@ -68,6 +68,14 @@ app.post('/query', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+async function main() {
+  await vectorStore.load();
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+main().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });

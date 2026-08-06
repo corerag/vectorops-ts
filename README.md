@@ -4,7 +4,7 @@ A minimal Retrieval-Augmented Generation (RAG) service built with TypeScript, Ex
 
 ## How it works
 
-1. **Upload** — `POST /upload` splits a document into overlapping chunks and stores them in an in-memory vector store, indexed by a locally-computed embedding for each chunk.
+1. **Upload** — `POST /upload` splits a document into overlapping chunks, embeds each one locally, and stores them in an in-memory vector store. Every upload is immediately persisted to `data/vectorstore.json`.
 2. **Query** — `POST /query` embeds your question the same way, retrieves the most similar chunks, and passes them to Claude as context to generate an answer.
 
 Embeddings are computed locally with a deterministic hashing-trick implementation (tokenize → hash into buckets → normalize) rather than calling an external embeddings API. This keeps the retrieval side fully free and offline — the only external call is to the Claude API when generating an answer.
@@ -36,8 +36,10 @@ vectorops-ts/
 │       └── services/
 │           ├── chunker.ts               # Document chunking (RecursiveCharacterTextSplitter)
 │           ├── localEmbeddings.ts       # Local hash-based embeddings (no API key needed)
-│           ├── vectorstore.ts           # In-memory vector store wrapper
+│           ├── vectorstore.ts           # Vector store wrapper + JSON persistence
 │           └── qa.ts                    # Sends retrieved context + question to Claude
+├── data/
+│   └── vectorstore.json                 # Persisted chunks + embeddings (created on first upload, not committed)
 ├── package.json
 └── tsconfig.json
 ```
@@ -84,7 +86,7 @@ Health check.
 
 ### `POST /upload`
 
-Chunks a document and embeds it into the in-memory vector store.
+Chunks a document, embeds it, and adds it to the vector store. The updated store is written to `data/vectorstore.json` before the response is returned.
 
 **Request body:**
 
@@ -157,7 +159,15 @@ The report ends by calling out exactly which questions failed to retrieve a rele
 
 To test against your own questions, edit `src/eval/dataset.ts` — add a document to `EVAL_DOCUMENTS` and a question with its correct document id(s) to `EVAL_QUESTIONS`. `metrics.ts` is a set of small pure functions if you want to add a metric.
 
+## Persistence
+
+The vector store lives in memory while the server runs, but every `/upload` immediately writes the full store — chunk text, embedding, and metadata for every chunk — to `data/vectorstore.json`. On startup, the server reads that file back in before it starts accepting requests, reusing the saved embeddings rather than recomputing them. Restarting the server (or a crash) doesn't lose uploaded documents.
+
+This is a flat JSON file, not a database — fine for local development and demos, but it rewrites the entire file on every upload with no locking, so it isn't meant for concurrent writers or large corpora. Delete `data/vectorstore.json` (or the whole `data/` directory) to reset the store.
+
+The retrieval evaluation harness (`npm run eval`) explicitly disables persistence for its own store, so running it never reads or overwrites your real uploaded data.
+
 ## Notes
 
-- The vector store is **in-memory only** — it resets whenever the server restarts. There's no persistence layer yet.
+- `data/` is git-ignored — persisted documents are local runtime state, not something to commit.
 - `src/.env` is git-ignored; never commit real API keys.
