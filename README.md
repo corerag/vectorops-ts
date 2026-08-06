@@ -28,6 +28,10 @@ vectorops-ts/
 │   ├── .env                             # Local environment variables (not committed)
 │   ├── test-upload.js                   # Manual smoke test for POST /upload
 │   ├── test-query.js                    # Manual smoke test for POST /query
+│   ├── eval/
+│   │   ├── dataset.ts                   # Fixture documents + questions with ground-truth answers
+│   │   ├── metrics.ts                   # Hit rate, MRR, precision/recall, score separation
+│   │   └── retrieval-eval.ts            # Runs the eval and prints a report (npm run eval)
 │   └── src/
 │       └── services/
 │           ├── chunker.ts               # Document chunking (RecursiveCharacterTextSplitter)
@@ -127,6 +131,31 @@ With the server running, the included scripts exercise the two endpoints against
 node src/test-upload.js
 node src/test-query.js
 ```
+
+## Retrieval evaluation
+
+`npm run eval` runs a self-contained retrieval-quality check: it loads a fixture corpus of 12 short documents into a fresh vector store, runs 13 test questions (each with a known-correct answer) through the same `similaritySearch()` path `/query` uses, and scores how well retrieval performed.
+
+```bash
+npm run eval               # evaluate top-4 retrieval (matches /query's default)
+npm run eval -- --k=6      # evaluate a different top-k cutoff
+```
+
+This only exercises embeddings + vector search — it never calls Claude, so it runs fully offline with no API key needed and no cost.
+
+**Metrics reported, per question and in aggregate:**
+
+| Metric | What it answers |
+| --- | --- |
+| Hit Rate@k | Did at least one relevant chunk show up in the top k results? |
+| Mean Reciprocal Rank (MRR) | Did the relevant chunk rank *first*, or was it buried lower in the results? |
+| Precision@k | Of the chunks retrieved, what fraction were actually relevant? |
+| Recall@k | Of all the relevant chunks that exist, what fraction did we retrieve? |
+| Score separation | Do relevant chunks score meaningfully higher than irrelevant ones, or is the embedding not really distinguishing them? |
+
+The report ends by calling out exactly which questions failed to retrieve a relevant chunk, so a regression (e.g. from tweaking the chunker, the embedding, or `k`) is easy to spot.
+
+To test against your own questions, edit `src/eval/dataset.ts` — add a document to `EVAL_DOCUMENTS` and a question with its correct document id(s) to `EVAL_QUESTIONS`. `metrics.ts` is a set of small pure functions if you want to add a metric.
 
 ## Notes
 
