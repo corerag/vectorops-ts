@@ -22,8 +22,12 @@ Embeddings are computed locally by [all-MiniLM-L6-v2](https://huggingface.co/Xen
 
 ```
 vectorops-ts/
+├── public/
+│   ├── index.html                       # Single-page UI: upload + ask
+│   ├── style.css                        # Dark theme
+│   └── app.js                           # Fetch calls to /upload and /query, no framework
 ├── src/
-│   ├── server.ts                        # Express app: routes and wiring
+│   ├── server.ts                        # Express app: routes, static file serving, wiring
 │   ├── .env                             # Local environment variables (not committed)
 │   ├── test-upload.js                   # Manual smoke test for POST /upload
 │   ├── test-query.js                    # Manual smoke test for POST /query
@@ -72,7 +76,16 @@ vectorops-ts/
    npm run dev
    ```
 
-   The server starts on `http://localhost:3000`.
+   The server starts on `http://localhost:3000`. Open that URL in a browser for the UI, or use the API directly.
+
+## Frontend
+
+A single-page UI is served at `/` — no build step, no framework, just static HTML/CSS/JS served directly by Express from `public/`. Two panels:
+
+- **Upload a document** — paste text, click Upload. Shows the resulting chunk count or an error.
+- **Ask a question** — type a question, click Ask (or press Enter). Shows Claude's answer and the source chunks it was grounded in, each with its similarity score.
+
+A status indicator in the header pings `/health` on load so you can tell at a glance whether the API is reachable. All content from the API (uploaded text echoed back, Claude's answer, source chunks) is HTML-escaped before being inserted into the page.
 
 ## API
 
