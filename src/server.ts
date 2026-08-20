@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { DocumentChunker } from './src/services/chunker';
 import { VectorStoreService } from './src/services/vectorstore';
-import { answerQuestion, condenseQuestion } from './src/services/qa';
 import { ConversationStore } from './src/services/conversation';
+import { routeQuery } from './src/services/queryRouter';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -54,31 +54,17 @@ app.post('/query', async (req, res) => {
     const sessionId = typeof sessionIdRaw === 'string' && sessionIdRaw ? sessionIdRaw : null;
     const history = sessionId ? conversations.getHistory(sessionId) : [];
 
-    // Follow-ups are often pronoun-only ("how does it compare to X?"), which
-    // embeds poorly on its own - rewrite to a standalone question before
-    // retrieval so it actually finds the right chunks. Skipped on the first
-    // turn of a conversation, where there's nothing to resolve against.
-    const retrievalQuery = history.length > 0 ? await condenseQuestion(history, question) : question;
-
     const topK = typeof k === 'number' && k > 0 ? k : 4;
-    const matches = await vectorStore.similaritySearch(retrievalQuery, topK);
-
-    if (matches.length === 0) {
-      return res.json({
-        answer: "I don't have any documents to search yet. Upload something first via /upload.",
-        sources: [],
-      });
-    }
-
-    const answer = await answerQuestion(question, matches.map((m) => m.content), history);
+    const { intent, answer, sources } = await routeQuery(vectorStore, question, history, topK);
 
     if (sessionId) {
       conversations.addTurn(sessionId, question, answer);
     }
 
     res.json({
+      intent,
       answer,
-      sources: matches.map((m) => ({ content: m.content, score: m.score })),
+      sources: sources.map((m) => ({ content: m.content, score: m.score })),
     });
   } catch (error) {
     console.error('Error processing query:', error);

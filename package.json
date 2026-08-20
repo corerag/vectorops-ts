@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node src/server.ts",
     "eval": "ts-node src/eval/retrieval-eval.ts",
+    "eval:intent": "ts-node src/eval/intent-eval.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
