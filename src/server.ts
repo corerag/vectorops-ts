@@ -5,6 +5,7 @@ import cors from 'cors';
 import { DocumentChunker } from './src/services/chunker';
 import { VectorStoreService } from './src/services/vectorstore';
 import { ConversationStore } from './src/services/conversation';
+import { QueryLogger } from './src/services/queryLog';
 import { routeQuery } from './src/services/queryRouter';
 
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -18,6 +19,7 @@ const PORT = process.env.PORT || 3000;
 const chunker = new DocumentChunker();
 const vectorStore = new VectorStoreService();
 const conversations = new ConversationStore();
+const queryLog = new QueryLogger();
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'VectorOps TS is running' });
@@ -60,6 +62,8 @@ app.post('/query', async (req, res) => {
     if (sessionId) {
       conversations.addTurn(sessionId, question, answer);
     }
+
+    await queryLog.record({ sessionId, question, intent, answer, sourceCount: sources.length });
 
     res.json({
       intent,
