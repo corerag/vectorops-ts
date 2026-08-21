@@ -26,15 +26,34 @@
  * cases (marked with a trailing comment) meant to stress-test the
  * classifier prompt, not obviously "clean" examples. Review before use.
  *
- * Future improvement (out of scope for this pass): multi-turn examples,
- * i.e. classifying a follow-up turn that only makes sense given prior
- * conversation context (e.g. "what about the one before that?").
+ * INTENT_MULTITURN_EXAMPLES (below) covers the follow-up case: a message
+ * that only makes sense - or whose category only makes sense - given prior
+ * conversation history (e.g. "what about the one before that?", or a
+ * factual answer followed by "give me the full picture", which shifts the
+ * category rather than repeating the previous turn's).
  */
 
 export type IntentCategory = 'factual_lookup' | 'summarization' | 'out_of_scope' | 'conversational';
 
 export interface IntentExample {
   text: string;
+  category: IntentCategory;
+}
+
+/** One turn of prior conversation, matching ConversationTurn in conversation.ts. */
+export interface IntentHistoryTurn {
+  question: string;
+  answer: string;
+}
+
+/**
+ * A follow-up message classified in the context of prior conversation
+ * turns - the follow-up text alone is often ambiguous or under-specified
+ * without that history (a bare "and before that?" or "great, thanks!").
+ */
+export interface IntentMultiTurnExample {
+  history: IntentHistoryTurn[];
+  followUp: string;
   category: IntentCategory;
 }
 
@@ -174,4 +193,181 @@ export const INTENT_EXAMPLES: IntentExample[] = [
   { text: 'Hey, quick one for you.', category: 'conversational' },
   { text: 'Perfect, exactly what I needed.', category: 'conversational' },
   { text: 'Can I ask you something unrelated to my resume real quick?', category: 'conversational' }, // meta framing request, not the off-topic content itself - contrast with out_of_scope examples above
+];
+
+// ---------------------------------------------------------------------
+// Multi-turn follow-up examples (8 per category, 32 total)
+// ---------------------------------------------------------------------
+export const INTENT_MULTITURN_EXAMPLES: IntentMultiTurnExample[] = [
+  // factual_lookup: pronoun/reference resolution, or a follow-up that
+  // pinpoints one fact even after a broader previous turn.
+  {
+    history: [{ question: 'What certifications do you currently hold?', answer: 'Security+ and an FAA Part 107 remote pilot certificate.' }],
+    followUp: 'When does the first one expire?',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: 'What was your role at Halden Defense Systems?', answer: 'Cloud Security Analyst.' }],
+    followUp: 'And what was your role right before that?',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: "What's your current job title?", answer: 'Cloud Security Analyst.' }],
+    followUp: 'How long have you been in that role?',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: 'Summarize my certifications.', answer: 'You hold Security+ (expires March 2026) and FAA Part 107 (issued June 2022).' }],
+    followUp: "What's the exact expiration date on the first one again?",
+    category: 'factual_lookup',
+  }, // follow-up to a summarization turn, but itself pinpoints a single fact - category shifts, doesn't inherit the previous turn's
+  {
+    history: [{ question: 'What are your certifications?', answer: 'Security+ and Part 107.' }],
+    followUp: 'Tell me more about just the Part 107 one.',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: 'When did you work at Northline Logistics?', answer: '2019 to 2022.' }],
+    followUp: 'What about at Halden Defense Systems?',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: 'What degree do you have?', answer: 'A B.S. in Information Technology.' }],
+    followUp: 'What school was that from?',
+    category: 'factual_lookup',
+  },
+  {
+    history: [{ question: 'Do you hold a security clearance?', answer: 'Yes, an active Secret clearance.' }],
+    followUp: 'When was it last adjudicated?',
+    category: 'factual_lookup',
+  },
+
+  // summarization: a follow-up that broadens scope beyond what the
+  // previous (often factual_lookup) turn covered.
+  {
+    history: [{ question: 'When did you get your Security+?', answer: 'March 2023.' }],
+    followUp: 'Can you give me the full picture of my certifications and work history?',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: "What's your current title?", answer: 'Cloud Security Analyst.' }],
+    followUp: 'Walk me through how I got here from my first job.',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: 'What roles have you held?', answer: 'Systems Administrator, then Cloud Security Analyst.' }],
+    followUp: 'Give me more detail on all of them, not just the titles.',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: 'Do you have any government contracting experience?', answer: 'Yes, at Halden Defense Systems.' }],
+    followUp: 'Summarize everything relevant to that for a federal contractor application.',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: "What's the expiration date on your Security+?", answer: 'March 2026.' }],
+    followUp: "What about an overview of all my certifications and when I'd need to renew each one?",
+    category: 'summarization',
+  },
+  {
+    history: [{ question: 'What was your job title in 2020?', answer: 'Systems Administrator.' }],
+    followUp: 'Can you recap my whole career from then to now?',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: 'What certifications do you hold?', answer: 'Security+ and Part 107.' }],
+    followUp: 'Help me turn all of this into a two-paragraph professional bio.',
+    category: 'summarization',
+  },
+  {
+    history: [{ question: "What's your highest degree?", answer: 'A B.S. in Information Technology.' }],
+    followUp: 'Combine that with my certifications into an overview of my qualifications.',
+    category: 'summarization',
+  },
+
+  // out_of_scope: a follow-up that pivots away from the person's own
+  // documents even though the previous turn was answerable from them.
+  {
+    history: [{ question: "What's your current title?", answer: 'Cloud Security Analyst.' }],
+    followUp: 'How does that compare to what most companies pay for that role?',
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: 'What certifications do you hold?', answer: 'Security+ and Part 107.' }],
+    followUp: 'Which one should I get next, in general, for a cybersecurity career?',
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: 'Summarize my background for a cybersecurity role.', answer: 'You bring a Systems Administrator to Cloud Security Analyst progression, backed by Security+ and Part 107.' }],
+    followUp: "Can you also write me a generic cover letter for a marketing job - don't worry about tailoring it to me?",
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: "What's your current employer?", answer: 'Halden Defense Systems.' }],
+    followUp: "What's that company's stock ticker?",
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: 'When does your Security+ expire?', answer: 'March 2026.' }],
+    followUp: "What's the passing score on the Security+ exam in general?",
+    category: 'out_of_scope',
+  }, // general exam trivia, not this person's actual cert status - contrast with the factual_lookup examples above
+  {
+    history: [{ question: "What's your FAA Part 107 certificate number?", answer: 'FA3-2231-7784.' }],
+    followUp: 'How many people take the Part 107 exam each year nationwide?',
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: "What's your job title?", answer: 'Cloud Security Analyst.' }],
+    followUp: 'Can you help me plan a trip for after I quit this job?',
+    category: 'out_of_scope',
+  },
+  {
+    history: [{ question: 'Summarize my work history.', answer: 'Systems Administrator at Northline Logistics (2019-2022), then Cloud Security Analyst at Halden Defense Systems (2022-present).' }],
+    followUp: "What's a good gift for a coworker's going-away party?",
+    category: 'out_of_scope',
+  },
+
+  // conversational: a follow-up that's small talk, thanks, or meta,
+  // regardless of what the previous turn's category was.
+  {
+    history: [{ question: 'When does your Security+ expire?', answer: 'March 2026.' }],
+    followUp: 'Great, thanks!',
+    category: 'conversational',
+  },
+  {
+    history: [{ question: 'Summarize my work history.', answer: 'Systems Administrator at Northline Logistics (2019-2022), then Cloud Security Analyst at Halden Defense Systems (2022-present).' }],
+    followUp: "That's really helpful, appreciate it.",
+    category: 'conversational',
+  },
+  {
+    history: [{ question: "What's the capital of France?", answer: "That's outside what I can help with here." }],
+    followUp: 'Oh okay, my bad.',
+    category: 'conversational',
+  },
+  {
+    history: [{ question: "What's your current title?", answer: 'Cloud Security Analyst.' }],
+    followUp: 'Wait, are you just reading this from a file, or do you actually know me?',
+    category: 'conversational',
+  },
+  {
+    history: [{ question: 'What certifications do you hold?', answer: 'Security+ and Part 107.' }],
+    followUp: 'Cool, one more thing though.',
+    category: 'conversational',
+  }, // signals a follow-up is coming but carries no lookup content itself, same as the single-turn conversational examples above
+  {
+    history: [{ question: 'When did you get your Part 107?', answer: 'June 2022.' }],
+    followUp: 'Hm, okay, let me think about what else to ask.',
+    category: 'conversational',
+  },
+  {
+    history: [{ question: 'What was your role at Northline Logistics?', answer: 'Systems Administrator.' }],
+    followUp: "Got it, that's all I needed for now.",
+    category: 'conversational',
+  },
+  {
+    history: [{ question: 'Summarize my certifications.', answer: 'You hold Security+ (expires March 2026) and FAA Part 107 (issued June 2022).' }],
+    followUp: "Sorry, ignore that last question, I'll come back to it.",
+    category: 'conversational',
+  },
 ];

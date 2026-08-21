@@ -9,6 +9,8 @@ export interface IntentResult {
   text: string;
   expected: IntentCategory;
   predicted: IntentCategory;
+  /** Whether this result came from a single-turn example or a multi-turn follow-up. */
+  turnType: 'single' | 'multi';
 }
 
 export function isCorrect(result: IntentResult): boolean {

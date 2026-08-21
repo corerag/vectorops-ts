@@ -37,7 +37,7 @@ export async function routeQuery(
   history: ConversationTurn[],
   k: number,
 ): Promise<QueryResult> {
-  const intent = await classifyIntent(question);
+  const intent = await classifyIntent(question, { history });
 
   if (intent === 'out_of_scope') {
     return { intent, answer: OUT_OF_SCOPE_REPLY, sources: [] };
