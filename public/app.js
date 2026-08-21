@@ -16,6 +16,16 @@
 
   const SESSION_STORAGE_KEY = 'vectorops_session_id';
 
+  // Mirrors the IntentCategory union from src/eval/intent-examples.ts -
+  // an unrecognized value (e.g. a future category the frontend doesn't know
+  // about yet) just renders no badge rather than breaking the turn.
+  const INTENT_LABELS = {
+    factual_lookup: 'Factual lookup',
+    summarization: 'Summary',
+    out_of_scope: 'Out of scope',
+    conversational: 'Conversational',
+  };
+
   // All API responses (uploaded text, Claude's answer) are untrusted as far
   // as the DOM is concerned - always escape before inserting as HTML.
   function escapeHtml(value) {
@@ -127,7 +137,7 @@
         throw new Error(data.error || 'Query failed');
       }
 
-      appendTurn(question, data.answer, data.sources || []);
+      appendTurn(question, data.answer, data.sources || [], data.intent);
       questionInput.value = '';
     } catch (error) {
       setResult(askResult, error.message || 'Query failed', 'error');
@@ -136,14 +146,23 @@
     }
   }
 
-  function appendTurn(question, answer, sources) {
+  function intentBadge(intent) {
+    const label = INTENT_LABELS[intent];
+    if (!label) return '';
+    return `<span class="intent-badge intent-${intent}">${label}</span>`;
+  }
+
+  function appendTurn(question, answer, sources, intent) {
     const turn = document.createElement('div');
     turn.className = 'turn';
 
     let html =
       `<div class="turn-label">You</div>` +
       `<div class="turn-question">${escapeHtml(question)}</div>` +
+      `<div class="turn-header-row">` +
       `<div class="turn-label">Answer</div>` +
+      intentBadge(intent) +
+      `</div>` +
       `<div class="turn-answer">${formatAnswer(answer)}</div>`;
 
     if (sources.length > 0) {
